@@ -1,0 +1,254 @@
+#!/bin/bash
+
+# Change to the project directory
+cd "$(dirname "$0")"
+
+# Load environment variables from .env file
+if [ -f .env ]; then
+    export $(cat .env | grep -v '^#' | xargs)
+fi
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >&2
+}
+
+# Function to URL encode strings
+urlencode() {
+    local string="$1"
+    echo "$string" | curl -Gso /dev/null -w %{url_effective} --data-urlencode @- "" | cut -c 3-
+}
+
+# Function to get device state
+get_device_state() {
+    local base_uri="$1"
+    local device_id="$2"
+    local access_token="$3"
+    
+    device_uri="${base_uri}/devices/${device_id}?access_token=${access_token}"
+    log "Fetching state from $device_uri"
+    
+    response=$(curl -s "$device_uri")
+    if [ $? -ne 0 ]; then
+        log "Error fetching device state"
+        echo "{}"
+        return
+    fi
+    
+    # Debug log the response
+    log "Device response: $response"
+    
+    # Check if response is valid JSON
+    if ! echo "$response" | jq '.' >/dev/null 2>&1; then
+        log "Error: Invalid JSON response from device"
+        echo "{}"
+        return
+    fi
+    
+    # Extract attributes using jq, with better error handling
+    result=$(echo "$response" | jq -r '.attributes | map(select(.currentValue != null) | {(.name): .currentValue}) | add // {}' 2>/dev/null)
+    if [ $? -ne 0 ]; then
+        log "Error parsing attributes from response"
+        echo "{}"
+        return
+    fi
+    echo "$result"
+}
+
+# Function to get hub devices
+get_hub_devices() {
+    local hub_uri="$1"
+    local access_token="$2"
+    
+    # Get base URI without /devices
+    base_uri="${hub_uri%/devices*}"
+    
+    log "Fetching devices from $hub_uri"
+    devices=$(curl -s "${hub_uri}?access_token=${access_token}")
+    if [ $? -ne 0 ]; then
+        log "Error fetching devices"
+        echo "[]"
+        return
+    fi
+    
+    # Debug log the devices response
+    log "Devices response: $devices"
+    
+    # Check if devices response is valid JSON
+    if ! echo "$devices" | jq '.' >/dev/null 2>&1; then
+        log "Error: Invalid JSON response from devices endpoint"
+        echo "[]"
+        return
+    fi
+    
+    # For each device, get its state and add it to the attributes
+    echo "$devices" | jq -r '.[] | @base64' | while read -r device; do
+        device_json=$(echo "$device" | base64 -d)
+        device_id=$(echo "$device_json" | jq -r '.id')
+        
+        if [ "$device_id" != "null" ]; then
+            state=$(get_device_state "$base_uri" "$device_id" "$access_token")
+            echo "$device_json" | jq --argjson attrs "$state" '. + {attributes: $attrs}'
+        fi
+    done | jq -s '.'
+}
+
+# Function to generate metrics
+generate_metrics() {
+    local hub_name="colossus"
+    log "Hub name: $hub_name"
+    
+    devices=$(get_hub_devices "$HE_URI" "$HE_TOKEN")
+    
+    # Validate devices JSON before continuing
+    if ! echo "$devices" | jq '.' >/dev/null 2>&1; then
+        log "Error: Invalid JSON returned from get_hub_devices"
+        return
+    fi
+    
+    device_count=$(echo "$devices" | jq 'length')
+    log "Retrieved $device_count devices"
+    
+    if [ -z "$devices" ] || [ "$devices" = "[]" ]; then
+        log "No devices found or empty response"
+        echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
+        echo "# TYPE hubitat_up gauge"
+        echo "hubitat_up{hub=\"${hub_name}\"} 0"
+        return
+    fi
+    
+    # Output metric headers
+    echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
+    echo "# TYPE hubitat_up gauge"
+    echo "hubitat_up{hub=\"${hub_name}\"} 1"
+    
+    echo "# HELP hubitat_device_info Information about Hubitat devices"
+    echo "# TYPE hubitat_device_info gauge"
+    
+    # Process each device
+    echo "$devices" | jq -r '.[] | @base64' | while read -r device; do
+        device_json=$(echo "$device" | base64 -d)
+        
+        # Extract device info
+        id=$(echo "$device_json" | jq -r '.id')
+        label=$(echo "$device_json" | jq -r '.label' | sed 's/"/\\"/g')
+        room=$(echo "$device_json" | jq -r '.room // "unknown"')
+        type=$(echo "$device_json" | jq -r '.type // "unknown"')
+        attributes=$(echo "$device_json" | jq -r '.attributes // {}')
+        
+        # Common labels
+        labels="hub=\"${hub_name}\",id=\"${id}\",label=\"${label}\",room=\"${room}\",type=\"${type}\""
+        
+        # Process switch state
+        switch_state=$(echo "$attributes" | jq -r '.switch // "unknown"')
+        if [[ "$switch_state" == "on" || "$switch_state" == "off" ]]; then
+            value=$([[ "$switch_state" == "on" ]] && echo "1" || echo "0")
+            echo "hubitat_device_switch{$labels} $value"
+        fi
+        
+        # Process battery level
+        battery=$(echo "$attributes" | jq -r '.battery')
+        if [[ "$battery" != "null" && "$battery" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_battery{$labels} $battery"
+        fi
+        
+        # Process illuminance
+        illuminance=$(echo "$attributes" | jq -r '.illuminance')
+        if [[ "$illuminance" != "null" && "$illuminance" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_illuminance{$labels} $illuminance"
+        fi
+        
+        # Process temperature
+        temperature=$(echo "$attributes" | jq -r '.temperature')
+        if [[ "$temperature" != "null" && "$temperature" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_temperature{$labels} $temperature"
+        fi
+        
+        # Process humidity
+        humidity=$(echo "$attributes" | jq -r '.humidity')
+        if [[ "$humidity" != "null" && "$humidity" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_humidity{$labels} $humidity"
+        fi
+        
+        # Process power
+        power=$(echo "$attributes" | jq -r '.power')
+        if [[ "$power" != "null" && "$power" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_power{$labels} $power"
+        fi
+        
+        # Process energy
+        energy=$(echo "$attributes" | jq -r '.energy')
+        if [[ "$energy" != "null" && "$energy" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_energy{$labels} $energy"
+        fi
+        
+        # Process motion state
+        motion=$(echo "$attributes" | jq -r '.motion')
+        if [[ "$motion" == "active" || "$motion" == "inactive" ]]; then
+            value=$([[ "$motion" == "active" ]] && echo "1" || echo "0")
+            echo "hubitat_device_motion{$labels} $value"
+        fi
+        
+        # Process contact state
+        contact=$(echo "$attributes" | jq -r '.contact')
+        if [[ "$contact" == "open" || "$contact" == "closed" ]]; then
+            value=$([[ "$contact" == "open" ]] && echo "1" || echo "0")
+            echo "hubitat_device_contact{$labels} $value"
+        fi
+    done
+}
+
+# Simple HTTP server using socat
+serve_metrics() {
+    local metrics_file
+    metrics_file=$(mktemp)
+    trap 'rm -f "$metrics_file"; [[ -n "$socat_pid" ]] && kill $socat_pid 2>/dev/null; exit' INT TERM EXIT
+    
+    log "Server starting on port 5000"
+    
+    # Start socat in the background to continuously listen
+    socat TCP-LISTEN:5000,reuseaddr,fork EXEC:"cat $metrics_file" &
+    socat_pid=$!
+    
+    # Main loop to update metrics
+    while true; do
+        # Generate fresh metrics
+        metrics=$(generate_metrics 2>"$metrics_file.err")
+        if [ $? -eq 0 ]; then
+            log "Metrics generated successfully"
+            # Store metrics in file
+            echo -ne "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n$metrics" > "$metrics_file"
+        else
+            log "Error generating metrics: $(cat "$metrics_file.err")"
+            echo -ne "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\n\r\nError generating metrics" > "$metrics_file"
+        fi
+        
+        # Check if socat is still running
+        if ! kill -0 $socat_pid 2>/dev/null; then
+            log "Socat process died, restarting..."
+            socat TCP-LISTEN:5000,reuseaddr,fork EXEC:"cat $metrics_file" &
+            socat_pid=$!
+        fi
+        
+        # Wait before next update
+        sleep 15
+    done
+}
+
+# Check for required commands
+for cmd in curl jq socat base64; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Error: $cmd is required but not installed."
+        exit 1
+    fi
+done
+
+# Check for required environment variables
+if [ -z "$HE_URI" ] || [ -z "$HE_TOKEN" ]; then
+    echo "Error: HE_URI and HE_TOKEN must be set in environment or .env file"
+    exit 1
+fi
+
+# Start the server
+log "Starting Hubitat Prometheus exporter on port 5000..."
+serve_metrics
