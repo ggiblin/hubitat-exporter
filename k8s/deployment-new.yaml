@@ -1,0 +1,286 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hubitat-exporter
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubitat-exporter-server
+  namespace: hubitat-exporter
+data:
+  server.py: |
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    class MetricsHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/metrics":
+                try:
+                    with open("/tmp/metrics", "r") as f:
+                        content = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain")
+                    self.end_headers()
+                    self.wfile.write(content.encode())
+                except Exception as e:
+                    print(f"Error: {str(e)}")
+                    self.send_response(500)
+                    self.send_header("Content-Type", "text/plain")
+                    self.end_headers()
+                    self.wfile.write(f"Error: {str(e)}".encode())
+            else:
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"404 Not Found")
+
+    print("Starting server on port 5000...")
+    HTTPServer(("", 5000), MetricsHandler).serve_forever()"", 5000), MetricsHandler).serve_forever()
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubitat-exporter-script
+  namespace: hubitat-exporter
+data:
+  metrics.sh: |
+    #!/bin/bash
+    
+    # Function to get device state
+    get_device_state() {
+        local base_uri="$1"
+        local device_id="$2"
+        local access_token="$3"
+        device_uri="${base_uri}/devices/${device_id}?access_token=${access_token}"
+        response=$(curl -s "$device_uri")
+        if [ $? -ne 0 ] || ! echo "$response" | jq '.' >/dev/null 2>&1; then
+            echo "{}"
+            return
+        fi
+        echo "$response" | jq -r '.attributes | map(select(.currentValue != null) | {(.name): .currentValue}) | add // {}'
+    }
+
+    # Function to get hub devices
+    get_hub_devices() {
+        local hub_uri="$1"
+        local access_token="$2"
+        local base_uri="${hub_uri%/devices*}"
+        devices=$(curl -s "${hub_uri}?access_token=${access_token}")
+        if [ $? -ne 0 ] || ! echo "$devices" | jq '.' >/dev/null 2>&1; then
+            echo "[]"
+            return
+        fi
+        echo "$devices" | jq -r '.[] | @base64' | while read -r device; do
+            device_json=$(echo "$device" | base64 -d)
+            device_id=$(echo "$device_json" | jq -r '.id')
+            if [ "$device_id" != "null" ]; then
+                state=$(get_device_state "$base_uri" "$device_id" "$access_token")
+                echo "$device_json" | jq --argjson attrs "$state" '. + {attributes: $attrs}'
+            fi
+        done | jq -s '.'
+    }
+
+    # Main loop to generate metrics
+    while true; do
+        hub_name="colossus"
+        devices=$(get_hub_devices "$HE_URI" "$HE_TOKEN")
+        
+        {
+            echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
+            echo "# TYPE hubitat_up gauge"
+            
+            if [ -z "$devices" ] || [ "$devices" = "[]" ]; then
+                echo "hubitat_up{hub=\"${hub_name}\"} 0"
+            else
+                echo "hubitat_up{hub=\"${hub_name}\"} 1"
+                echo "# HELP hubitat_device_info Information about Hubitat devices"
+                echo "# TYPE hubitat_device_info gauge"
+                
+                echo "$devices" | jq -r '.[] | @base64' | while read -r device; do
+                    device_json=$(echo "$device" | base64 -d)
+                    id=$(echo "$device_json" | jq -r '.id')
+                    label=$(echo "$device_json" | jq -r '.label' | sed 's/"/\\"/g')
+                    room=$(echo "$device_json" | jq -r '.room // "unknown"')
+                    type=$(echo "$device_json" | jq -r '.type // "unknown"')
+                    attributes=$(echo "$device_json" | jq -r '.attributes // {}')
+                    
+                    labels="hub=\"${hub_name}\",id=\"${id}\",label=\"${label}\",room=\"${room}\",type=\"${type}\""
+                    
+                    switch_state=$(echo "$attributes" | jq -r '.switch // "unknown"')
+                    if [[ "$switch_state" == "on" || "$switch_state" == "off" ]]; then
+                        value=$([[ "$switch_state" == "on" ]] && echo "1" || echo "0")
+                        echo "hubitat_device_switch{$labels} $value"
+                    fi
+                    
+                    battery=$(echo "$attributes" | jq -r '.battery')
+                    if [[ "$battery" != "null" && "$battery" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                        echo "hubitat_device_battery{$labels} $battery"
+                    fi
+                    
+                    illuminance=$(echo "$attributes" | jq -r '.illuminance')
+                    if [[ "$illuminance" != "null" && "$illuminance" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                        echo "hubitat_device_illuminance{$labels} $illuminance"
+                    fi
+                    
+                    temperature=$(echo "$attributes" | jq -r '.temperature')
+                    if [[ "$temperature" != "null" && "$temperature" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                        echo "hubitat_device_temperature{$labels} $temperature"
+                    fi
+                    
+                    humidity=$(echo "$attributes" | jq -r '.humidity')
+                    if [[ "$humidity" != "null" && "$humidity" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                        echo "hubitat_device_humidity{$labels} $humidity"
+                    fi
+                    
+                    power=$(echo "$attributes" | jq -r '.power')
+                    if [[ "$power" != "null" && "$power" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                        echo "hubitat_device_power{$labels} $power"
+                    fi
+                    
+                    energy=$(echo "$attributes" | jq -r '.energy')
+                    if [[ "$energy" != "null" && "$energy" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                        echo "hubitat_device_energy{$labels} $energy"
+                    fi
+                    
+                    motion=$(echo "$attributes" | jq -r '.motion')
+                    if [[ "$motion" == "active" || "$motion" == "inactive" ]]; then
+                        value=$([[ "$motion" == "active" ]] && echo "1" || echo "0")
+                        echo "hubitat_device_motion{$labels} $value"
+                    fi
+                    
+                    contact=$(echo "$attributes" | jq -r '.contact')
+                    if [[ "$contact" == "open" || "$contact" == "closed" ]]; then
+                        value=$([[ "$contact" == "open" ]] && echo "1" || echo "0")
+                        echo "hubitat_device_contact{$labels} $value"
+                    fi
+                done
+            fi
+        } > /tmp/metrics
+        sleep 15
+    done
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hubitat-exporter-config
+  namespace: hubitat-exporter
+type: Opaque
+data:
+  HE_URI: "REDACTED_HE_URI_BASE64"
+  HE_TOKEN: "REDACTED_HE_TOKEN_BASE64"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hubitat-exporter
+  namespace: hubitat-exporter
+  labels:
+    app: hubitat-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hubitat-exporter
+  template:
+    metadata:
+      labels:
+        app: hubitat-exporter
+    spec:
+      containers:
+      - name: hubitat-exporter
+        image: python:3.9-slim
+        ports:
+        - containerPort: 5000
+          name: metrics
+        volumeMounts:
+        - name: server
+          mountPath: /server
+        - name: script
+          mountPath: /script
+        env:
+        - name: HE_URI
+          valueFrom:
+            secretKeyRef:
+              name: hubitat-exporter-config
+              key: HE_URI
+        - name: HE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hubitat-exporter-config
+              key: HE_TOKEN
+        command:
+        - "/bin/bash"
+        - "-c"
+        - |
+          apt-get update && \
+          DEBIAN_FRONTEND=noninteractive apt-get install -y curl jq && \
+          cp /script/metrics.sh /tmp/ && \
+          chmod +x /tmp/metrics.sh && \
+          /tmp/metrics.sh & \
+          python3 /server/server.py
+      volumes:
+      - name: server
+        configMap:
+          name: hubitat-exporter-server
+      - name: script
+        configMap:
+          name: hubitat-exporter-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hubitat-exporter
+  namespace: hubitat-exporter
+  labels:
+    app: hubitat-exporter
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "192.168.0.123"
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: metrics
+  selector:
+    app: hubitat-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hubitat-exporter
+  namespace: monitoring
+  labels:
+    release: prometheus # Adjust this to match your Prometheus Operator release label
+spec:
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+  namespaceSelector:
+    matchNames:
+      - hubitat-exporter
+  selector:
+    matchLabels:
+      app: hubitat-exporter
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: 'hubitat'
+        static_configs:
+          - targets: ['192.168.0.123:80']
+        metrics_path: /metrics
+        scheme: http
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: hubitat-colossus
