@@ -1,6 +1,6 @@
-# Hubitat Prometheus Exporter - Kubernetes Deployment
+# Hubitat Prometheus Exporter - Kubernetes Deployment (Colossus Hub)
 
-This directory contains the Kubernetes manifests for deploying the Hubitat Prometheus Exporter.
+This directory contains the Kubernetes manifests for deploying the Hubitat Prometheus Exporter for the Colossus hub.
 
 ## Components
 
@@ -8,13 +8,13 @@ The deployment consists of the following resources:
 
 - **Namespace**: `hubitat-exporter`
 - **ConfigMaps**:
-  - `hubitat-exporter-server`: Python HTTP server implementation
-  - `hubitat-exporter-script`: Bash script for collecting Hubitat metrics
-- **Secret**: `hubitat-exporter-config` for Hubitat API credentials
-- **Deployment**: Runs the exporter in a Python container
-- **Service**: LoadBalancer type for external access
-- **ServiceMonitor**: For Prometheus Operator integration (optional)
-- **ConfigMap**: `prometheus-config` for standalone Prometheus configuration (optional)
+  - `hubitat-exporter-server-colossus`: Python HTTP server implementation
+  - `hubitat-exporter-script-colossus`: Bash script for collecting Hubitat metrics
+- **Secret**: `hubitat-exporter-config-colossus` for Hubitat API credentials
+- **Deployment**: `hubitat-exporter-colossus` runs the exporter in a Python container
+- **Service**: `hubitat-exporter-colossus` LoadBalancer type for external access
+- **ServiceMonitor**: `hubitat-exporter-colossus` for Prometheus Operator integration (optional)
+- **ConfigMap**: `prometheus-config-colossus` for standalone Prometheus configuration (optional)
 
 ## Configuration Files
 
@@ -22,12 +22,13 @@ The deployment consists of the following resources:
 
 ### Key Configuration Parameters
 
-#### Hubitat API Credentials
+#### Hubitat API Credentials (Colossus)
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: hubitat-exporter-config
+  name: hubitat-exporter-config-colossus
+  namespace: hubitat-exporter
 type: Opaque
 data:
   HE_URI: <base64-encoded-hubitat-api-url>
@@ -45,7 +46,8 @@ echo -n "your-access-token" | base64
 apiVersion: v1
 kind: Service
 metadata:
-  name: hubitat-exporter
+  name: hubitat-exporter-colossus
+  namespace: hubitat-exporter
 spec:
   type: LoadBalancer
   loadBalancerIP: "192.168.0.123"
@@ -65,8 +67,8 @@ spec:
 
 3. Verify the deployment:
    ```bash
-   kubectl -n hubitat-exporter get pods
-   kubectl -n hubitat-exporter get services
+   kubectl -n hubitat-exporter get pods -l hub=colossus
+   kubectl -n hubitat-exporter get services -l hub=colossus
    ```
 
 ## Prometheus Integration
@@ -77,8 +79,10 @@ The ServiceMonitor configuration is included in the deployment file:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: hubitat-exporter
+  name: hubitat-exporter-colossus
   namespace: monitoring
+  labels:
+    hub: colossus
 spec:
   endpoints:
   - port: metrics
@@ -86,6 +90,9 @@ spec:
   namespaceSelector:
     matchNames:
       - hubitat-exporter
+  selector:
+    matchLabels:
+      hub: colossus
 ```
 
 ### Option 2: Standalone Prometheus
@@ -94,13 +101,16 @@ A ConfigMap with Prometheus configuration is provided:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: prometheus-config
+  name: prometheus-config-colossus
+  namespace: monitoring
 data:
   prometheus.yml: |
     scrape_configs:
-      - job_name: 'hubitat'
+      - job_name: 'hubitat-colossus'
         static_configs:
           - targets: ['192.168.0.123:80']
+        labels:
+          hub: colossus
 ```
 
 ## Verification
@@ -112,7 +122,7 @@ data:
 
 2. View pod logs:
    ```bash
-   kubectl -n hubitat-exporter logs -l app=hubitat-exporter
+   kubectl -n hubitat-exporter logs -l app=hubitat-exporter-colossus
    ```
 
 3. Test metrics endpoint:
