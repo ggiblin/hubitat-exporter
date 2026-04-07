@@ -143,11 +143,15 @@ The exporter provides the following metrics:
 ### Thermostat Operating State
 - `hubitat_device_thermostat_mode` - Thermostat mode (0=off, 1=heat, 2=cool, 3=auto, 4=fan_only, 5=emergency_heat)
 - `hubitat_device_thermostat_operating_state` - Thermostat operating state (0=idle, 1=heating, 2=cooling, 3=fan_only, 4=pending_cool, 5=pending_heat)
+- `hubitat_device_thermostat_setpoint_mode` - Thermostat setpoint mode (0=followSchedule, 1=temporaryOverride, 2=permanentOverride)
 
 ### Sensor State
 - `hubitat_device_illum_state` - Illumination state (1=bright, 0=dark)
 - `hubitat_device_human_motion_state` - Human motion state (0=none, 1=moving, 2=small_move, 3=standing)
 - `hubitat_device_effect` - Light effect active (0=none, 1=active/colorloop)
+- `hubitat_device_sync_status` - Zigbee sync state (1=synced, 0=not synced)
+- `hubitat_device_status_upper` - Driver/device status enum (`clear`=1, `Complete:Success`=2, `Complete:Timeout`=0)
+- `hubitat_device_power_source` - Power source enum (`?`=0, `dc`=1, `battery`=2, `mains/ac`=3)
 
 ### Radar / Presence Sensor Tuning
 - `hubitat_device_detection_delay` - Detection delay (seconds)
@@ -156,6 +160,8 @@ The exporter provides the following metrics:
 - `hubitat_device_small_motion_detection_sensitivity` - Small motion detection sensitivity
 - `hubitat_device_keep_time` - Keep time / hold-on period (seconds)
 - `hubitat_device_unacknowledged_time` - Unacknowledged presence time (seconds)
+- `hubitat_device_amperage` - Amperage reading
+- `hubitat_device_poked_side` - Parsed side value from Zigbee map helper `poked` events
 
 All metrics include the following labels:
 - `hub` - Hub name

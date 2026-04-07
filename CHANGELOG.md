@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [0.10.0] — 2026-04-07
+
+### Added
+- **Batch 9 metrics**:
+  - `amperage` (numeric)
+  - `power_source` enum (`?`=0, `dc`=1, `battery`=2, `mains/ac`=3)
+  - `thermostat_setpoint_mode` (`followSchedule`=0, `temporaryOverride`=1, `permanentOverride`=2)
+  - `sync_status` (`synced`=1, `not synced`=0)
+  - `status_upper` from uppercase `Status` attribute (`clear`=1, `Complete:Success`=2, `Complete:Timeout`=0)
+  - `poked_side` extracted from Zigbee map helper `poked` payloads like `0000:3`
+
+---
+
 ## [0.9.0] — 2026-04-07
 
 ### Added

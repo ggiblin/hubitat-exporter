@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 0.9.0
+# Version: 0.10.0
 
 # Change to the project directory
 cd "$(dirname "$0")"
@@ -121,7 +121,7 @@ generate_metrics() {
     # Output metric headers
     echo "# HELP hubitat_exporter_build_info Hubitat exporter build information"
     echo "# TYPE hubitat_exporter_build_info gauge"
-    echo "hubitat_exporter_build_info{version=\"0.9.0\",hub=\"${hub_name}\"}  1"
+    echo "hubitat_exporter_build_info{version=\"0.10.0\",hub=\"${hub_name}\"}  1"
     echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
     echo "# TYPE hubitat_up gauge"
     echo "hubitat_up{hub=\"${hub_name}\"} 1"
@@ -161,6 +161,19 @@ generate_metrics() {
         if [[ "$battery_voltage" != "null" && "$battery_voltage" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             echo "hubitat_device_battery_voltage{$labels} $battery_voltage"
         fi
+
+        amperage=$(echo "$attributes" | jq -r '.amperage')
+        if [[ "$amperage" != "null" && "$amperage" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_amperage{$labels} $amperage"
+        fi
+
+        power_source=$(echo "$attributes" | jq -r '.powerSource // "unknown"')
+        case "$power_source" in
+            dc)       echo "hubitat_device_power_source{$labels} 1" ;;
+            battery)  echo "hubitat_device_power_source{$labels} 2" ;;
+            mains|ac) echo "hubitat_device_power_source{$labels} 3" ;;
+            "?")      echo "hubitat_device_power_source{$labels} 0" ;;
+        esac
         
         # Process illuminance
         illuminance=$(echo "$attributes" | jq -r '.illuminance')
@@ -553,6 +566,13 @@ generate_metrics() {
             "pending heat"|pending_heat) echo "hubitat_device_thermostat_operating_state{$labels} 5" ;;
         esac
 
+        thermostat_setpoint_mode=$(echo "$attributes" | jq -r '.thermostatSetpointMode // "unknown"')
+        case "$thermostat_setpoint_mode" in
+            followSchedule|follow_schedule)        echo "hubitat_device_thermostat_setpoint_mode{$labels} 0" ;;
+            temporaryOverride|temporary_override)  echo "hubitat_device_thermostat_setpoint_mode{$labels} 1" ;;
+            permanentOverride|permanent_override)  echo "hubitat_device_thermostat_setpoint_mode{$labels} 2" ;;
+        esac
+
         # Process weather and pressure metrics
         air_pressure=$(echo "$attributes" | jq -r '.airPressure // .pressure')
         if [[ "$air_pressure" != "null" && "$air_pressure" =~ ^[0-9]+\.?[0-9]*$ ]]; then
@@ -657,11 +677,24 @@ generate_metrics() {
             echo "hubitat_device_network_status{$labels} $value"
         fi
 
+        sync_status=$(echo "$attributes" | jq -r '.syncStatus // "unknown"')
+        case "$sync_status" in
+            Synced|synced)             echo "hubitat_device_sync_status{$labels} 1" ;;
+            "Not Synced"|not_synced)  echo "hubitat_device_sync_status{$labels} 0" ;;
+        esac
+
         status=$(echo "$attributes" | jq -r '.status // "unknown"')
         if [[ "$status" == "Online" || "$status" == "Offline" ]]; then
             value=$([[ "$status" == "Online" ]] && echo "1" || echo "0")
             echo "hubitat_device_status{$labels} $value"
         fi
+
+        status_upper=$(echo "$attributes" | jq -r '.Status // "unknown"')
+        case "$status_upper" in
+            clear)             echo "hubitat_device_status_upper{$labels} 1" ;;
+            Complete:Success)  echo "hubitat_device_status_upper{$labels} 2" ;;
+            Complete:Timeout)  echo "hubitat_device_status_upper{$labels} 0" ;;
+        esac
 
         hub_mesh_disabled=$(echo "$attributes" | jq -r '.hubMeshDisabled // "unknown"')
         if [[ "$hub_mesh_disabled" == "true" || "$hub_mesh_disabled" == "false" ]]; then
@@ -748,6 +781,11 @@ generate_metrics() {
             rotation_stopped) echo "hubitat_device_action{$labels} 8" ;;
             1_min_inactivity) echo "hubitat_device_action{$labels} 9" ;;
         esac
+
+        poked=$(echo "$attributes" | jq -r '.poked // "unknown"')
+        if [[ "$poked" =~ :([0-9]+)$ ]]; then
+            echo "hubitat_device_poked_side{$labels} ${BASH_REMATCH[1]}"
+        fi
     done
 }
 
