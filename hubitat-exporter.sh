@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 0.8.0
+# Version: 0.9.0
 
 # Change to the project directory
 cd "$(dirname "$0")"
@@ -121,7 +121,7 @@ generate_metrics() {
     # Output metric headers
     echo "# HELP hubitat_exporter_build_info Hubitat exporter build information"
     echo "# TYPE hubitat_exporter_build_info gauge"
-    echo "hubitat_exporter_build_info{version=\"0.8.0\",hub=\"${hub_name}\"}  1"
+    echo "hubitat_exporter_build_info{version=\"0.9.0\",hub=\"${hub_name}\"}  1"
     echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
     echo "# TYPE hubitat_up gauge"
     echo "hubitat_up{hub=\"${hub_name}\"} 1"
@@ -450,6 +450,26 @@ generate_metrics() {
             RGBW) echo "hubitat_device_color_mode{$labels} 3" ;;
         esac
 
+        illum_state=$(echo "$attributes" | jq -r '.illumState // "unknown"')
+        if [[ "$illum_state" == "bright" || "$illum_state" == "dark" ]]; then
+            value=$([[ "$illum_state" == "bright" ]] && echo "1" || echo "0")
+            echo "hubitat_device_illum_state{$labels} $value"
+        fi
+
+        human_motion_state=$(echo "$attributes" | jq -r '.humanMotionState // "unknown"')
+        case "$human_motion_state" in
+            none)        echo "hubitat_device_human_motion_state{$labels} 0" ;;
+            moving)      echo "hubitat_device_human_motion_state{$labels} 1" ;;
+            small_move)  echo "hubitat_device_human_motion_state{$labels} 2" ;;
+            standing)    echo "hubitat_device_human_motion_state{$labels} 3" ;;
+        esac
+
+        effect=$(echo "$attributes" | jq -r '.effect // "unknown"')
+        if [[ "$effect" != "unknown" && "$effect" != "null" ]]; then
+            value=$([[ "$effect" == "none" ]] && echo "0" || echo "1")
+            echo "hubitat_device_effect{$labels} $value"
+        fi
+
         # Process PM2.5
         pm25=$(echo "$attributes" | jq -r '.pm25')
         if [[ "$pm25" != "null" && "$pm25" =~ ^[0-9]+\.?[0-9]*$ ]]; then
@@ -513,6 +533,26 @@ generate_metrics() {
             echo "hubitat_device_window_function{$labels} $value"
         fi
 
+        thermostat_mode=$(echo "$attributes" | jq -r '.thermostatMode // "unknown"')
+        case "$thermostat_mode" in
+            off)                    echo "hubitat_device_thermostat_mode{$labels} 0" ;;
+            heat)                   echo "hubitat_device_thermostat_mode{$labels} 1" ;;
+            cool)                   echo "hubitat_device_thermostat_mode{$labels} 2" ;;
+            auto)                   echo "hubitat_device_thermostat_mode{$labels} 3" ;;
+            "fan only"|fan_only)    echo "hubitat_device_thermostat_mode{$labels} 4" ;;
+            "emergency heat"|emergency_heat) echo "hubitat_device_thermostat_mode{$labels} 5" ;;
+        esac
+
+        thermostat_operating_state=$(echo "$attributes" | jq -r '.thermostatOperatingState // "unknown"')
+        case "$thermostat_operating_state" in
+            idle)                        echo "hubitat_device_thermostat_operating_state{$labels} 0" ;;
+            heating)                     echo "hubitat_device_thermostat_operating_state{$labels} 1" ;;
+            cooling)                     echo "hubitat_device_thermostat_operating_state{$labels} 2" ;;
+            "fan only"|fan_only)         echo "hubitat_device_thermostat_operating_state{$labels} 3" ;;
+            "pending cool"|pending_cool) echo "hubitat_device_thermostat_operating_state{$labels} 4" ;;
+            "pending heat"|pending_heat) echo "hubitat_device_thermostat_operating_state{$labels} 5" ;;
+        esac
+
         # Process weather and pressure metrics
         air_pressure=$(echo "$attributes" | jq -r '.airPressure // .pressure')
         if [[ "$air_pressure" != "null" && "$air_pressure" =~ ^[0-9]+\.?[0-9]*$ ]]; then
@@ -553,6 +593,36 @@ generate_metrics() {
         distance=$(echo "$attributes" | jq -r '.distance')
         if [[ "$distance" != "null" && "$distance" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             echo "hubitat_device_distance{$labels} $distance"
+        fi
+
+        detection_delay=$(echo "$attributes" | jq -r '.detectionDelay')
+        if [[ "$detection_delay" != "null" && "$detection_delay" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_detection_delay{$labels} $detection_delay"
+        fi
+
+        static_detection_distance=$(echo "$attributes" | jq -r '.staticDetectionDistance')
+        if [[ "$static_detection_distance" != "null" && "$static_detection_distance" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_static_detection_distance{$labels} $static_detection_distance"
+        fi
+
+        motion_detection_distance=$(echo "$attributes" | jq -r '.motionDetectionDistance')
+        if [[ "$motion_detection_distance" != "null" && "$motion_detection_distance" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_motion_detection_distance{$labels} $motion_detection_distance"
+        fi
+
+        small_motion_detection_sensitivity=$(echo "$attributes" | jq -r '.smallMotionDetectionSensitivity')
+        if [[ "$small_motion_detection_sensitivity" != "null" && "$small_motion_detection_sensitivity" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_small_motion_detection_sensitivity{$labels} $small_motion_detection_sensitivity"
+        fi
+
+        keep_time=$(echo "$attributes" | jq -r '.keepTime')
+        if [[ "$keep_time" != "null" && "$keep_time" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_keep_time{$labels} $keep_time"
+        fi
+
+        unacknowledged_time=$(echo "$attributes" | jq -r '.unacknowledgedTime')
+        if [[ "$unacknowledged_time" != "null" && "$unacknowledged_time" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_unacknowledged_time{$labels} $unacknowledged_time"
         fi
 
         rtt=$(echo "$attributes" | jq -r '.rtt')
@@ -665,6 +735,19 @@ generate_metrics() {
         if [[ "$taps" != "null" && "$taps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             echo "hubitat_device_taps{$labels} $taps"
         fi
+
+        action=$(echo "$attributes" | jq -r '.action // "unknown"')
+        case "$action" in
+            wakeup)           echo "hubitat_device_action{$labels} 1" ;;
+            shake)            echo "hubitat_device_action{$labels} 2" ;;
+            flip_to_side)     echo "hubitat_device_action{$labels} 3" ;;
+            tap_twice)        echo "hubitat_device_action{$labels} 4" ;;
+            rotate_left)      echo "hubitat_device_action{$labels} 5" ;;
+            rotate_right)     echo "hubitat_device_action{$labels} 6" ;;
+            start_rotating)   echo "hubitat_device_action{$labels} 7" ;;
+            rotation_stopped) echo "hubitat_device_action{$labels} 8" ;;
+            1_min_inactivity) echo "hubitat_device_action{$labels} 9" ;;
+        esac
     done
 }
 

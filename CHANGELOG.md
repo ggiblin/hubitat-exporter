@@ -5,6 +5,17 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [0.9.0] — 2026-04-07
+
+### Added
+- **Batch 8 metrics**:
+  - **Thermostat operating state**: `thermostat_mode` (0=off, 1=heat, 2=cool, 3=auto, 4=fan_only, 5=emergency_heat), `thermostat_operating_state` (0=idle, 1=heating, 2=cooling, 3=fan_only, 4=pending_cool, 5=pending_heat)
+  - **Sensor state enums**: `illum_state` (1=bright, 0=dark), `human_motion_state` (0=none, 1=moving, 2=small_move, 3=standing), `effect` (0=none, 1=active)
+  - **Aqara Cube action**: `action` (1=wakeup, 2=shake, 3=flip_to_side, 4=tap_twice, 5=rotate_left, 6=rotate_right, 7=start_rotating, 8=rotation_stopped, 9=1_min_inactivity)
+  - **Radar / presence tuning numerics**: `detection_delay`, `static_detection_distance`, `motion_detection_distance`, `small_motion_detection_sensitivity`, `keep_time`, `unacknowledged_time`
+
+---
+
 ## [0.8.0] — 2026-04-07
 
 ### Added
