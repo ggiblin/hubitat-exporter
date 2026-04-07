@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [0.12.0] — 2026-04-07
+
+### Added
+- **Batch 11 metrics**:
+  - Channel metadata presence: `channel_name_present`, `channel_desc_present`
+  - Color metadata: `color_rgb`, `color_name_present`
+  - Thermostat text state enums: `thermostat_setpoint_status`, `thermostat_status`
+  - `optimisation` state metric (1=active, 0=inactive)
+  - `weather_icon_code` extracted from `weatherIcons` values such as `04n`
+  - Generic numeric passthrough: `variable`
+
+---
+
 ## [0.11.0] — 2026-04-07
 
 ### Added

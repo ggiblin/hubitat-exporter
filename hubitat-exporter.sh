@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 0.11.0
+# Version: 0.12.0
 
 # Change to the project directory
 cd "$(dirname "$0")"
@@ -121,7 +121,7 @@ generate_metrics() {
     # Output metric headers
     echo "# HELP hubitat_exporter_build_info Hubitat exporter build information"
     echo "# TYPE hubitat_exporter_build_info gauge"
-    echo "hubitat_exporter_build_info{version=\"0.11.0\",hub=\"${hub_name}\"}  1"
+    echo "hubitat_exporter_build_info{version=\"0.12.0\",hub=\"${hub_name}\"}  1"
     echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
     echo "# TYPE hubitat_up gauge"
     echo "hubitat_up{hub=\"${hub_name}\"} 1"
@@ -435,6 +435,18 @@ generate_metrics() {
             echo "hubitat_device_channel_full_number{$labels} $channel_full_number"
         fi
 
+        channel_name=$(echo "$attributes" | jq -r '.channelName // "unknown"')
+        if [[ "$channel_name" != "unknown" && "$channel_name" != "null" && -n "$channel_name" ]]; then
+            echo "hubitat_device_channel_name_present{$labels} 1"
+        fi
+
+        channel_desc=$(echo "$attributes" | jq -r '.channelDesc // "unknown"')
+        if [[ "$channel_desc" != "unknown" && "$channel_desc" != "null" && "$channel_desc" != "[none]" ]]; then
+            echo "hubitat_device_channel_desc_present{$labels} 1"
+        elif [[ "$channel_desc" == "[none]" ]]; then
+            echo "hubitat_device_channel_desc_present{$labels} 0"
+        fi
+
         volume=$(echo "$attributes" | jq -r '.volume')
         if [[ "$volume" != "null" && "$volume" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
             echo "hubitat_device_volume{$labels} $volume"
@@ -470,6 +482,17 @@ generate_metrics() {
             RGB) echo "hubitat_device_color_mode{$labels} 2" ;;
             RGBW) echo "hubitat_device_color_mode{$labels} 3" ;;
         esac
+
+        color=$(echo "$attributes" | jq -r '.color // "unknown"')
+        if [[ "$color" =~ ^#([0-9A-Fa-f]{6})$ ]]; then
+            color_value=$((16#${BASH_REMATCH[1]}))
+            echo "hubitat_device_color_rgb{$labels} $color_value"
+        fi
+
+        color_name=$(echo "$attributes" | jq -r '.colorName // "unknown"')
+        if [[ "$color_name" != "unknown" && "$color_name" != "null" && -n "$color_name" ]]; then
+            echo "hubitat_device_color_name_present{$labels} 1"
+        fi
 
         illum_state=$(echo "$attributes" | jq -r '.illumState // "unknown"')
         if [[ "$illum_state" == "bright" || "$illum_state" == "dark" ]]; then
@@ -581,6 +604,25 @@ generate_metrics() {
             permanentOverride|permanent_override)  echo "hubitat_device_thermostat_setpoint_mode{$labels} 2" ;;
         esac
 
+        thermostat_setpoint_status=$(echo "$attributes" | jq -r '.thermostatSetpointStatus // "unknown"')
+        case "$thermostat_setpoint_status" in
+            "Following Schedule") echo "hubitat_device_thermostat_setpoint_status{$labels} 0" ;;
+            Temporary*)            echo "hubitat_device_thermostat_setpoint_status{$labels} 1" ;;
+        esac
+
+        thermostat_status=$(echo "$attributes" | jq -r '.thermostatStatus // "unknown"')
+        case "$thermostat_status" in
+            Idle*)    echo "hubitat_device_thermostat_status{$labels} 0" ;;
+            Heating*) echo "hubitat_device_thermostat_status{$labels} 1" ;;
+            Cooling*) echo "hubitat_device_thermostat_status{$labels} 2" ;;
+        esac
+
+        optimisation=$(echo "$attributes" | jq -r '.optimisation // "unknown"')
+        if [[ "$optimisation" == "active" || "$optimisation" == "inactive" ]]; then
+            value=$([[ "$optimisation" == "active" ]] && echo "1" || echo "0")
+            echo "hubitat_device_optimisation{$labels} $value"
+        fi
+
         next_scheduled_time=$(echo "$attributes" | jq -r '.nextScheduledTime // "unknown"')
         if [[ "$next_scheduled_time" != "unknown" && "$next_scheduled_time" != "null" ]]; then
             epoch=$(date -d "$next_scheduled_time" +%s 2>/dev/null)
@@ -611,6 +653,16 @@ generate_metrics() {
         wind_direction=$(echo "$attributes" | jq -r '.windDirection')
         if [[ "$wind_direction" != "null" && "$wind_direction" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             echo "hubitat_device_wind_direction{$labels} $wind_direction"
+        fi
+
+        weather_icons=$(echo "$attributes" | jq -r '.weatherIcons // "unknown"')
+        if [[ "$weather_icons" =~ ^([0-9]{2})[dn]$ ]]; then
+            echo "hubitat_device_weather_icon_code{$labels} ${BASH_REMATCH[1]}"
+        fi
+
+        variable=$(echo "$attributes" | jq -r '.variable')
+        if [[ "$variable" != "null" && "$variable" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            echo "hubitat_device_variable{$labels} $variable"
         fi
 
         # Process presence and occupancy timing metrics

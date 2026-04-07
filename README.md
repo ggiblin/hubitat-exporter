@@ -173,6 +173,17 @@ The exporter provides the following metrics:
 - `hubitat_device_last_tilt_epoch` - Last tilt event time as Unix epoch
 - `hubitat_device_last_vibration_epoch` - Last vibration event time as Unix epoch
 
+### Batch 11 State/Metadata Metrics
+- `hubitat_device_channel_name_present` - Channel name is available (1=yes)
+- `hubitat_device_channel_desc_present` - Channel description available (1=yes, 0=`[none]`)
+- `hubitat_device_color_rgb` - RGB color as packed integer from `#RRGGBB`
+- `hubitat_device_color_name_present` - Color name is available (1=yes)
+- `hubitat_device_thermostat_setpoint_status` - Setpoint status (0=Following Schedule, 1=Temporary Override)
+- `hubitat_device_thermostat_status` - Thermostat status (0=idle, 1=heating, 2=cooling)
+- `hubitat_device_optimisation` - Optimisation state (1=active, 0=inactive)
+- `hubitat_device_weather_icon_code` - Weather icon numeric code extracted from values like `04n`
+- `hubitat_device_variable` - Numeric variable value from generic drivers
+
 All metrics include the following labels:
 - `hub` - Hub name
 - `id` - Device ID
