@@ -5,6 +5,17 @@ Versioning follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATC
 
 ---
 
+## [0.11.0] — 2026-04-07
+
+### Added
+- **Batch 10 metrics**:
+  - `battery_last_replaced_epoch` parsed from `batteryLastReplaced`
+  - `next_scheduled_time_epoch` parsed from `nextScheduledTime`
+  - `thermostat_setpoint_until_epoch` parsed from `thermostatSetpointUntil`
+  - Timestamp families with epoch-or-string fallback parsing: `last_checkin_epoch`, `last_drop_epoch`, `last_stationary_epoch`, `last_tilt_epoch`, `last_vibration_epoch`
+
+---
+
 ## [0.10.0] — 2026-04-07
 
 ### Added

@@ -163,6 +163,16 @@ The exporter provides the following metrics:
 - `hubitat_device_amperage` - Amperage reading
 - `hubitat_device_poked_side` - Parsed side value from Zigbee map helper `poked` events
 
+### Time / Epoch Metrics
+- `hubitat_device_battery_last_replaced_epoch` - Parsed battery replacement date as Unix epoch
+- `hubitat_device_next_scheduled_time_epoch` - Next scheduled thermostat time as Unix epoch
+- `hubitat_device_thermostat_setpoint_until_epoch` - Thermostat override end time as Unix epoch
+- `hubitat_device_last_checkin_epoch` - Device last check-in time as Unix epoch
+- `hubitat_device_last_drop_epoch` - Last drop event time as Unix epoch
+- `hubitat_device_last_stationary_epoch` - Last stationary event time as Unix epoch
+- `hubitat_device_last_tilt_epoch` - Last tilt event time as Unix epoch
+- `hubitat_device_last_vibration_epoch` - Last vibration event time as Unix epoch
+
 All metrics include the following labels:
 - `hub` - Hub name
 - `id` - Device ID

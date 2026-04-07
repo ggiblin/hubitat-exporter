@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 0.10.0
+# Version: 0.11.0
 
 # Change to the project directory
 cd "$(dirname "$0")"
@@ -121,7 +121,7 @@ generate_metrics() {
     # Output metric headers
     echo "# HELP hubitat_exporter_build_info Hubitat exporter build information"
     echo "# TYPE hubitat_exporter_build_info gauge"
-    echo "hubitat_exporter_build_info{version=\"0.10.0\",hub=\"${hub_name}\"}  1"
+    echo "hubitat_exporter_build_info{version=\"0.11.0\",hub=\"${hub_name}\"}  1"
     echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
     echo "# TYPE hubitat_up gauge"
     echo "hubitat_up{hub=\"${hub_name}\"} 1"
@@ -174,6 +174,14 @@ generate_metrics() {
             mains|ac) echo "hubitat_device_power_source{$labels} 3" ;;
             "?")      echo "hubitat_device_power_source{$labels} 0" ;;
         esac
+
+        battery_last_replaced=$(echo "$attributes" | jq -r '.batteryLastReplaced // "unknown"')
+        if [[ "$battery_last_replaced" != "unknown" && "$battery_last_replaced" != "null" ]]; then
+            epoch=$(date -d "$battery_last_replaced" +%s 2>/dev/null)
+            if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                echo "hubitat_device_battery_last_replaced_epoch{$labels} $epoch"
+            fi
+        fi
         
         # Process illuminance
         illuminance=$(echo "$attributes" | jq -r '.illuminance')
@@ -573,6 +581,22 @@ generate_metrics() {
             permanentOverride|permanent_override)  echo "hubitat_device_thermostat_setpoint_mode{$labels} 2" ;;
         esac
 
+        next_scheduled_time=$(echo "$attributes" | jq -r '.nextScheduledTime // "unknown"')
+        if [[ "$next_scheduled_time" != "unknown" && "$next_scheduled_time" != "null" ]]; then
+            epoch=$(date -d "$next_scheduled_time" +%s 2>/dev/null)
+            if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                echo "hubitat_device_next_scheduled_time_epoch{$labels} $epoch"
+            fi
+        fi
+
+        thermostat_setpoint_until=$(echo "$attributes" | jq -r '.thermostatSetpointUntil // "unknown"')
+        if [[ "$thermostat_setpoint_until" != "unknown" && "$thermostat_setpoint_until" != "null" ]]; then
+            epoch=$(date -d "$thermostat_setpoint_until" +%s 2>/dev/null)
+            if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                echo "hubitat_device_thermostat_setpoint_until_epoch{$labels} $epoch"
+            fi
+        fi
+
         # Process weather and pressure metrics
         air_pressure=$(echo "$attributes" | jq -r '.airPressure // .pressure')
         if [[ "$air_pressure" != "null" && "$air_pressure" =~ ^[0-9]+\.?[0-9]*$ ]]; then
@@ -643,6 +667,71 @@ generate_metrics() {
         unacknowledged_time=$(echo "$attributes" | jq -r '.unacknowledgedTime')
         if [[ "$unacknowledged_time" != "null" && "$unacknowledged_time" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
             echo "hubitat_device_unacknowledged_time{$labels} $unacknowledged_time"
+        fi
+
+        last_checkin_epoch=$(echo "$attributes" | jq -r '.lastCheckinEpoch')
+        if [[ "$last_checkin_epoch" != "null" && "$last_checkin_epoch" =~ ^[0-9]+$ ]]; then
+            echo "hubitat_device_last_checkin_epoch{$labels} $last_checkin_epoch"
+        else
+            last_checkin_time=$(echo "$attributes" | jq -r '.lastCheckinTime // .lastCheckin // "unknown"')
+            if [[ "$last_checkin_time" != "unknown" && "$last_checkin_time" != "null" ]]; then
+                epoch=$(date -d "$last_checkin_time" +%s 2>/dev/null)
+                if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                    echo "hubitat_device_last_checkin_epoch{$labels} $epoch"
+                fi
+            fi
+        fi
+
+        last_drop_epoch=$(echo "$attributes" | jq -r '.lastDropEpoch')
+        if [[ "$last_drop_epoch" != "null" && "$last_drop_epoch" =~ ^[0-9]+$ ]]; then
+            echo "hubitat_device_last_drop_epoch{$labels} $last_drop_epoch"
+        else
+            last_drop_time=$(echo "$attributes" | jq -r '.lastDropTime // "unknown"')
+            if [[ "$last_drop_time" != "unknown" && "$last_drop_time" != "null" ]]; then
+                epoch=$(date -d "$last_drop_time" +%s 2>/dev/null)
+                if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                    echo "hubitat_device_last_drop_epoch{$labels} $epoch"
+                fi
+            fi
+        fi
+
+        last_stationary_epoch=$(echo "$attributes" | jq -r '.lastStationaryEpoch')
+        if [[ "$last_stationary_epoch" != "null" && "$last_stationary_epoch" =~ ^[0-9]+$ ]]; then
+            echo "hubitat_device_last_stationary_epoch{$labels} $last_stationary_epoch"
+        else
+            last_stationary_time=$(echo "$attributes" | jq -r '.lastStationaryTime // "unknown"')
+            if [[ "$last_stationary_time" != "unknown" && "$last_stationary_time" != "null" ]]; then
+                epoch=$(date -d "$last_stationary_time" +%s 2>/dev/null)
+                if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                    echo "hubitat_device_last_stationary_epoch{$labels} $epoch"
+                fi
+            fi
+        fi
+
+        last_tilt_epoch=$(echo "$attributes" | jq -r '.lastTiltEpoch')
+        if [[ "$last_tilt_epoch" != "null" && "$last_tilt_epoch" =~ ^[0-9]+$ ]]; then
+            echo "hubitat_device_last_tilt_epoch{$labels} $last_tilt_epoch"
+        else
+            last_tilt_time=$(echo "$attributes" | jq -r '.lastTiltTime // "unknown"')
+            if [[ "$last_tilt_time" != "unknown" && "$last_tilt_time" != "null" ]]; then
+                epoch=$(date -d "$last_tilt_time" +%s 2>/dev/null)
+                if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                    echo "hubitat_device_last_tilt_epoch{$labels} $epoch"
+                fi
+            fi
+        fi
+
+        last_vibration_epoch=$(echo "$attributes" | jq -r '.lastVibrationEpoch')
+        if [[ "$last_vibration_epoch" != "null" && "$last_vibration_epoch" =~ ^[0-9]+$ ]]; then
+            echo "hubitat_device_last_vibration_epoch{$labels} $last_vibration_epoch"
+        else
+            last_vibration_time=$(echo "$attributes" | jq -r '.lastVibrationTime // "unknown"')
+            if [[ "$last_vibration_time" != "unknown" && "$last_vibration_time" != "null" ]]; then
+                epoch=$(date -d "$last_vibration_time" +%s 2>/dev/null)
+                if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+                    echo "hubitat_device_last_vibration_epoch{$labels} $epoch"
+                fi
+            fi
         fi
 
         rtt=$(echo "$attributes" | jq -r '.rtt')
