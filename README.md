@@ -247,3 +247,103 @@ The logs include:
 
 This project is open source and available under the Elmer Fudd and MIT License.
 
+---
+
+## Security & Contributing
+
+### Credential handling
+
+This repository is designed so that **no real credentials ever enter git history**.
+
+| File | Purpose | Committed? |
+|---|---|---|
+| `.env` | Local credentials for the systemd / direct-run path | ❌ excluded by `.gitignore` |
+| `.env.example` | Template showing required variables | ✅ safe placeholder values |
+| `k8s/deployment.yaml` | Generic manifest — Secret has empty `""` values | ✅ safe |
+| `k8s/deployment-node-exporter-*.yaml` | Hub-specific manifests with real URIs | ❌ excluded by `.gitignore` |
+
+Credentials for the Kubernetes deployment are injected separately after `kubectl apply`:
+
+```bash
+kubectl -n hubitat-exporter create secret generic hubitat-exporter-secret \
+  --from-literal=HE_URI="http://YOUR_HUB_IP/apps/api/APP_ID/devices" \
+  --from-literal=HE_TOKEN="your-maker-api-token" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+### How this repo was cleaned for public publishing
+
+Earlier commits contained real Hubitat Maker API tokens and hub IPs stored in Kubernetes
+manifests and a committed `.env` file. The following process was used to remove them:
+
+**1. Rotate the exposed tokens**
+
+Go to your Hubitat hub → Apps → Maker API → regenerate the access token. Any token
+that appeared in git history should be considered revoked.
+
+**2. Remove files from history with `git-filter-repo`**
+
+```bash
+pip install git-filter-repo
+
+# Remove files that contained real credentials from all commits
+git-filter-repo \
+  --path k8s/deployment-node-exporter-colossus.yaml \
+  --path k8s/deployment-node-exporter-shankmata.yaml \
+  --path .env \
+  --invert-paths \
+  --force
+```
+
+**3. Replace any remaining secret values in-place**
+
+If the values appeared in other files (e.g. a ConfigMap or old deployment), use
+`--replace-text` with a substitutions file:
+
+```
+# /tmp/replacements.txt — one substitution per line
+ACTUAL_BASE64_TOKEN==>REDACTED_HE_TOKEN_BASE64
+ACTUAL_BASE64_URI==>REDACTED_HE_URI_BASE64
+ACTUAL_PLAINTEXT_TOKEN==>REDACTED_HE_TOKEN_PLAINTEXT
+```
+
+```bash
+git-filter-repo --replace-text /tmp/replacements.txt --force
+```
+
+**4. Verify the history is clean**
+
+```bash
+# Should return no output (exit 1 = no matches = clean)
+git log --all --full-history -p | grep '^+' | grep 'YOUR_REAL_TOKEN'
+
+# Confirm .env never appears in any commit
+git log --all --oneline -- .env
+```
+
+**5. Add `.gitignore` and `.env.example`**
+
+```bash
+# .gitignore
+.env
+k8s/deployment-node-exporter-*.yaml
+```
+
+```bash
+# .env.example
+HE_URI=http://YOUR_HUB_IP/apps/api/APP_ID/devices
+HE_TOKEN=your-maker-api-token-here
+```
+
+**6. Commit and push**
+
+Because `git-filter-repo` rewrites history, you must force-push to the remote.
+Since this was a fresh GitHub repo, a force-push was safe:
+
+```bash
+git add .gitignore .env.example hubitat-exporter.service k8s/deployment.yaml k8s/servicemonitor.yaml
+git commit -m "chore: add gitignore, env example, and full k8s manifests"
+git remote add github git@github.com:YOUR_USERNAME/hubitat-exporter.git
+git push github --force --all
+```
+

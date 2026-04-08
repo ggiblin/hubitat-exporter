@@ -1,0 +1,6 @@
+# Local credentials — never commit these
+.env
+
+# Hub-specific manifests containing real URIs and tokens.
+# Use k8s/deployment.yaml (the generic template) instead.
+k8s/deployment-node-exporter-*.yaml

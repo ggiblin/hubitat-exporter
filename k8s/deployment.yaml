@@ -1,0 +1,183 @@
+# Generic single-hub Hubitat Prometheus Exporter
+# Credentials are stored in a Kubernetes Secret — do NOT hard-code them here.
+# Inject real values with:
+#   kubectl -n hubitat-exporter create secret generic hubitat-exporter-secret \
+#     --from-literal=HE_URI="http://YOUR_HUB_IP/apps/api/APP_ID/devices" \
+#     --from-literal=HE_TOKEN="your-maker-api-token" \
+#     --dry-run=client -o yaml | kubectl apply -f -
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+	name: hubitat-exporter
+---
+apiVersion: v1
+kind: Secret
+metadata:
+	name: hubitat-exporter-secret
+	namespace: hubitat-exporter
+type: Opaque
+stringData:
+	HE_URI: ""
+	HE_TOKEN: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+	name: hubitat-exporter-script
+	namespace: hubitat-exporter
+data:
+	metrics.sh: |
+		#!/bin/bash
+		set -u
+
+		out=/tmp/metrics
+		tmp=/tmp/metrics.tmp
+
+		cat > "$out" <<'EOF'
+		# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)
+		# TYPE hubitat_up gauge
+		hubitat_up{hub="generic"} 0
+		EOF
+
+		while true; do
+			response=$(curl -sS --connect-timeout 5 --max-time 20 "${HE_URI}?access_token=${HE_TOKEN}" 2>/dev/null || true)
+
+			{
+				echo "# HELP hubitat_up Indicates if the connection to Hubitat is up (1) or down (0)"
+				echo "# TYPE hubitat_up gauge"
+
+				if echo "$response" | jq -e '.' >/dev/null 2>&1; then
+					echo "hubitat_up{hub=\"generic\"} 1"
+					echo "# HELP hubitat_device_switch Switch state (1=on, 0=off)"
+					echo "# TYPE hubitat_device_switch gauge"
+					echo "$response" | jq -r '.[] | select(.id != null) | [(.id|tostring), (.label // "unknown"), (.room // "unknown"), (.type // "unknown"), ((.attributes[]? | select(.name=="switch") | .currentValue) // "unknown")] | @tsv' | \
+						while IFS=$'\t' read -r id label room type switch_state; do
+							if [ "$switch_state" = "on" ]; then
+								echo "hubitat_device_switch{hub=\"generic\",id=\"$id\",label=\"$label\",room=\"$room\",type=\"$type\"} 1"
+							elif [ "$switch_state" = "off" ]; then
+								echo "hubitat_device_switch{hub=\"generic\",id=\"$id\",label=\"$label\",room=\"$room\",type=\"$type\"} 0"
+							fi
+						done
+				else
+					echo "hubitat_up{hub=\"generic\"} 0"
+				fi
+			} > "$tmp"
+			mv "$tmp" "$out"
+
+			sleep 15
+		done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+	name: hubitat-exporter
+	namespace: hubitat-exporter
+	labels:
+		app: hubitat-exporter
+spec:
+	replicas: 1
+	selector:
+		matchLabels:
+			app: hubitat-exporter
+	template:
+		metadata:
+			labels:
+				app: hubitat-exporter
+		spec:
+			containers:
+			- name: hubitat-exporter
+				image: debian:bookworm-slim
+				command: ["/bin/bash", "-c"]
+				args:
+				- |
+					set -e
+					apt-get update
+					DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl jq
+					cp /script/metrics.sh /tmp/metrics.sh
+					chmod +x /tmp/metrics.sh
+					/tmp/metrics.sh &
+					cat >/tmp/server.py <<'PY'
+					from http.server import BaseHTTPRequestHandler, HTTPServer
+
+					class MetricsHandler(BaseHTTPRequestHandler):
+						def do_GET(self):
+							if self.path != "/metrics":
+								self.send_response(404)
+								self.send_header("Content-Type", "text/plain; charset=utf-8")
+								self.end_headers()
+								self.wfile.write(b"404 Not Found\n")
+								return
+
+							try:
+								with open("/tmp/metrics", "rb") as f:
+									payload = f.read()
+								self.send_response(200)
+								self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+								self.end_headers()
+								self.wfile.write(payload)
+							except Exception as exc:
+								self.send_response(500)
+								self.send_header("Content-Type", "text/plain; charset=utf-8")
+								self.end_headers()
+								self.wfile.write(f"error: {exc}\n".encode("utf-8"))
+
+						def log_message(self, format, *args):
+							pass
+
+					HTTPServer(("0.0.0.0", 5000), MetricsHandler).serve_forever()
+					PY
+					python3 /tmp/server.py
+				env:
+				- name: HE_URI
+					valueFrom:
+						secretKeyRef:
+							name: hubitat-exporter-secret
+							key: HE_URI
+				- name: HE_TOKEN
+					valueFrom:
+						secretKeyRef:
+							name: hubitat-exporter-secret
+							key: HE_TOKEN
+				ports:
+				- name: metrics
+					containerPort: 5000
+				volumeMounts:
+				- name: script
+					mountPath: /script
+					readOnly: true
+				readinessProbe:
+					httpGet:
+						path: /metrics
+						port: metrics
+					initialDelaySeconds: 10
+					periodSeconds: 10
+					timeoutSeconds: 3
+					failureThreshold: 3
+				livenessProbe:
+					httpGet:
+						path: /metrics
+						port: metrics
+					initialDelaySeconds: 30
+					periodSeconds: 20
+					timeoutSeconds: 3
+					failureThreshold: 3
+			volumes:
+			- name: script
+				configMap:
+					name: hubitat-exporter-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+	name: hubitat-exporter
+	namespace: hubitat-exporter
+	labels:
+		app: hubitat-exporter
+spec:
+	selector:
+		app: hubitat-exporter
+	ports:
+	- name: metrics
+		port: 5000
+		targetPort: metrics
