@@ -1,49 +1,102 @@
-# Hubitat Prometheus Gateway
+# Hubitat Prometheus Exporter
 
-A lightweight Bash-based Prometheus exporter for Hubitat Elevation smart home hub metrics. This exporter collects device states and metrics from your Hubitat hub and exposes them in Prometheus format.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A lightweight Bash-based Prometheus exporter for **Hubitat Elevation** smart home hub metrics. Polls your hub's Maker API and exposes device states as Prometheus metrics, ready for scraping into your monitoring stack.
 
 ## Features
 
-- Exports device states (on/off, temperature, humidity, etc.)
-- Supports multiple device types and attributes
-- Updates metrics every 15 seconds
-- Minimal dependencies (uses common Unix tools)
-- Handles concurrent connections efficiently
-- Automatic reconnection on errors
+✨ **Real-time metrics**  
+- Device states (switches, dimmers, batteries, temps, humidity, power, etc.)
+- 40+ device attribute types supported
+- 15-second refresh interval
 
-## Prerequisites
+⚡ **Lightweight & portable**  
+- Pure Bash — minimal dependencies (`curl`, `jq`, `socat`)
+- Runs on any Linux/macOS with a shell
+- Systemd-ready for boot-time persistence
 
-The following tools must be installed:
-- `curl`
-- `jq`
-- `socat`
-- `base64`
+🐳 **Multi-deployment**  
+- **Local/systemd** — run directly on your Raspberry Pi or server
+- **Kubernetes** — generic manifests provided for k8s (with k3s testing included)
 
-## Configuration
+🔐 **Safe for public repos**  
+- Secrets never committed to git
+- Example `.env` template with zero real credentials
+- Works with Kubernetes Secrets for credential injection
 
-Create a `.env` file in the same directory as the script with the following variables:
+## Quick Start
+
+### 1. Create credentials file
 
 ```bash
-HE_URI=http://your-hubitat-ip/apps/api/26/devices
-HE_TOKEN=your-access-token
+cp .env.example .env
+
+# Edit .env with your hub's IP and Maker API token
 ```
 
-Replace `your-hubitat-ip` with your Hubitat hub's IP address and `your-access-token` with your Maker API access token.
+Get your values from: **Hubitat Hub UI → Apps → Maker API**
 
-## Installation
+### 2. Run locally (requires curl, jq, socat, base64)
 
-1. Clone this repository
-2. Make the script executable:
-   ```bash
-   chmod +x hubitat-exporter.sh
-   ```
-3. Create and configure the `.env` file as described above
-4. Run the exporter:
-   ```bash
-   ./hubitat-exporter.sh
-   ```
+```bash
+chmod +x hubitat-exporter.sh
+./hubitat-exporter.sh
+```
+
+Server listens on `http://localhost:5000/metrics`
+
+### 3. Run as systemd service (Linux)
+
+```bash
+sudo cp hubitat-exporter.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hubitat-exporter
+sudo systemctl status hubitat-exporter
+```
+
+View logs: `journalctl -u hubitat-exporter -f`
+
+### 4. Deploy to Kubernetes
+
+```bash
+# Apply generic manifests
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/servicemonitor.yaml
+
+# Inject real credentials
+kubectl -n hubitat-exporter create secret generic hubitat-exporter-secret \
+  --from-literal=HE_URI="http://YOUR_HUB_IP/apps/api/APP_ID/devices" \
+  --from-literal=HE_TOKEN="your-maker-api-token" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Verify
+kubectl -n hubitat-exporter get pods
+kubectl -n hubitat-exporter port-forward svc/hubitat-exporter 5000:5000
+# Visit http://localhost:5000/metrics
+```
 
 ## Exported Metrics
+
+All device metrics include the following labels for filtering and alerting:
+
+| Label | Example | Description |
+|-------|---------|-------------|
+| `hub` | `generic` | Hub identifier (default: `generic`, or customize in deployment) |
+| `id` | `42` | Device ID from Hubitat |
+| `label` | `Living Room Light` | Device name/label from Hubitat |
+| `room` | `Living Room` | Hubitat room/location |
+| `type` | `Switch` | Device type from Hubitat |
+
+**Example scrape output:**
+```
+hubitat_up{hub="generic"} 1
+hubitat_device_switch{hub="generic",id="42",label="Living Room Light",room="Living Room",type="Light"} 1
+hubitat_device_level{hub="generic",id="42",label="Living Room Light",room="Living Room",type="Light"} 75
+hubitat_device_temperature{hub="generic",id="88",label="Bedroom Sensor",room="Bedroom",type="Temperature Sensor"} 72
+```
+
+### Available Metrics
 
 The exporter provides the following metrics:
 
